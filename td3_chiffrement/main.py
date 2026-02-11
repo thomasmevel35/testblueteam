@@ -272,18 +272,37 @@ def _prepare_remote_path(sftp_client, remote_path: str) -> str:
     return normalized
 
 
-def send_sftp(local: str, remote: str, config: dict) -> bool:
-    """Transfère un fichier de clé via SFTP (usage de sauvegarde)."""
+def send_sftp(local_file: str, remote: Optional[str] = None, config: Optional[dict] = None) -> bool:
+    """Envoie un fichier local vers un serveur distant via SFTP.
+
+    - Mode interactif: fournir uniquement `local_file`
+    - Mode programmatique: fournir `remote` + `config`
+    """
     try:
         _require_paramiko()
         import paramiko
 
-        local_path = Path(local).expanduser().resolve()
+        local_path = Path(local_file).expanduser().resolve()
         if not local_path.is_file():
             raise FileNotFoundError(f"Fichier local introuvable: {local_path}")
-        local_size = local_path.stat().st_size
+
+        if config is None:
+            print("\n--- Transfert SFTP ---")
+            host = input(" Serveur (IP/Hôte) : ").strip()
+            user = input(" Utilisateur : ").strip()
+            pwd = getpass.getpass(" Mot de passe : ")
+            port_value = input(" Port (défaut 22) : ").strip()
+            port = int(port_value) if port_value.isdigit() else 22
+            remote_dir = input(" Dossier destination (ex: /tmp/) : ").strip()
+            filename = local_path.name
+            remote = posixpath.join(remote_dir, filename) if remote_dir else filename
+            config = {"host": host, "port": str(port), "username": user, "password": pwd}
+
+        if remote is None:
+            raise ValueError("Chemin distant manquant.")
 
         _validate_sftp_config(config)
+
         host = str(config["host"]).strip()
         port = int(config["port"])
         username = str(config["username"]).strip()
@@ -305,6 +324,7 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
                 raise FileNotFoundError(f"Clé privée SSH introuvable: {key_path}")
             connect_kwargs["key_filename"] = str(key_path)
 
+        local_size = local_path.stat().st_size
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -312,6 +332,7 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
             ssh.connect(**connect_kwargs)
             with ssh.open_sftp() as sftp:
                 final_remote = _prepare_remote_path(sftp, remote)
+                print(f" [*] Envoi de {local_path.name} vers {host}...")
                 sftp.put(str(local_path), final_remote)
                 remote_stat = sftp.stat(final_remote)
                 if remote_stat.st_size != local_size:
@@ -321,10 +342,10 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
         finally:
             ssh.close()
 
-        print("✓ Transfert SFTP réussi.")
+        print(" [v] Transfert réussi !")
         return True
     except Exception as exc:  # noqa: BLE001
-        print(f"✗ Erreur SFTP: {exc}")
+        print(f" [x] Erreur SFTP: {exc}")
         return False
 
 
@@ -458,8 +479,15 @@ def action_generate_key() -> None:
 
 def action_send_sftp() -> None:
     local = input("Chemin de la clé locale : ").strip()
-    remote = input("Chemin distant de destination : ").strip()
 
+    mode = _ask_choice("Mode SFTP [1=simple, 2=avancé] : ", {"1", "2"})
+    if mode == "1":
+        ok = send_sftp(local)
+        if ok:
+            print("✓ Sauvegarde de clé distante terminée.")
+        return
+
+    remote = input("Chemin distant de destination : ").strip()
     target = input("Connexion SFTP (utilisateur@ip_ou_hote) : ").strip()
     username, host = parse_sftp_target(target)
     port = input("Port SFTP [22] : ").strip() or "22"

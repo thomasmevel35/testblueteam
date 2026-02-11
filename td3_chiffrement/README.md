@@ -79,6 +79,24 @@ Résultat: total=15, chiffrés=14, ignorés=1, erreurs=0
 
 ### Exemples
 
+### Exemple 0 — mode simple (inspiré de ton format)
+
+```text
+Choix : 2
+Chemin de la clé locale : /home/user/.local/share/td3_keys/key_aes_256_20260211_120000.json
+Mode SFTP [1=simple, 2=avancé] : 1
+
+--- Transfert SFTP ---
+ Serveur (IP/Hôte) : 192.168.1.20
+ Utilisateur : admin
+ Mot de passe : ********
+ Port (défaut 22) : 22
+ Dossier destination (ex: /tmp/) : /tmp/
+ [*] Envoi de key_aes_256_20260211_120000.json vers 192.168.1.20...
+ [v] Transfert réussi !
+✓ Sauvegarde de clé distante terminée.
+```
+
 #### Exemple 1 — mot de passe
 
 ```text
@@ -89,7 +107,7 @@ Connexion SFTP (utilisateur@ip_ou_hote) : admin@192.168.1.20
 Port SFTP [22] : 22
 Auth [1=mot de passe, 2=clé privée] : 1
 Mot de passe : ********
-✓ Transfert SFTP réussi.
+ [v] Transfert réussi !
 ✓ Sauvegarde de clé distante terminée.
 ```
 
@@ -103,7 +121,7 @@ Connexion SFTP (utilisateur@ip_ou_hote) : backup@fileserver.local
 Port SFTP [22] : 2222
 Auth [1=mot de passe, 2=clé privée] : 2
 Chemin de la clé privée SSH : /home/user/.ssh/id_rsa
-✓ Transfert SFTP réussi.
+ [v] Transfert réussi !
 ✓ Sauvegarde de clé distante terminée.
 ```
 

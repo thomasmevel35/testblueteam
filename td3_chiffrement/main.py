@@ -17,12 +17,14 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 MAGIC = b"TD3ENC1\n"
 SUPPORTED_LENGTHS = {128: 16, 192: 24, 256: 32}
 
+@lru_cache(maxsize=1)
 def _load_crypto_primitives():
     try:
         from cryptography.hazmat.primitives import hashes
@@ -279,6 +281,7 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
         local_path = Path(local).expanduser().resolve()
         if not local_path.is_file():
             raise FileNotFoundError(f"Fichier local introuvable: {local_path}")
+        local_size = local_path.stat().st_size
 
         _validate_sftp_config(config)
         host = str(config["host"]).strip()
@@ -301,8 +304,10 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
                 final_remote = _prepare_remote_path(sftp, remote)
                 sftp.put(str(local_path), final_remote)
                 remote_stat = sftp.stat(final_remote)
-                if remote_stat.st_size <= 0:
-                    raise RuntimeError("Transfert SFTP incomplet: taille distante invalide.")
+                if remote_stat.st_size != local_size:
+                    raise RuntimeError(
+                        f"Transfert SFTP incomplet: taille distante {remote_stat.st_size} != taille locale {local_size}."
+                    )
         finally:
             transport.close()
 
@@ -352,14 +357,26 @@ def is_encrypted(path: Path) -> bool:
 
 
 def collect_files_from_directory(root: Path, recursive: bool, extension_filter: str = "") -> list[Path]:
-    pattern = "**/*" if recursive else "*"
-    candidates = [p for p in root.glob(pattern) if p.is_file()]
-
+    iterator = root.rglob("*") if recursive else root.glob("*")
+    ext_filter = ""
     if extension_filter:
-        ext = extension_filter if extension_filter.startswith(".") else f".{extension_filter}"
-        candidates = [p for p in candidates if p.suffix.lower() == ext.lower()]
+        ext_filter = extension_filter if extension_filter.startswith(".") else f".{extension_filter}"
+        ext_filter = ext_filter.lower()
 
-    return candidates
+    files: list[Path] = []
+    for candidate in iterator:
+        if not candidate.is_file():
+            continue
+        if ext_filter and candidate.suffix.lower() != ext_filter:
+            continue
+        files.append(candidate)
+
+    return files
+
+
+def parse_yes_no(value: str) -> bool:
+    """Normalise une réponse utilisateur de type oui/non."""
+    return value.strip().lower() in {"o", "y", "yes", "oui"}
 
 
 def render_progress(current: int, total: int, width: int = 20) -> str:
@@ -397,7 +414,7 @@ def select_directories() -> tuple[list[Path], bool]:
         if not folder.is_dir():
             raise ValueError("Chemin de dossier invalide.")
 
-        recursive = input("Chiffrement récursif ? (O/N) : ").strip().lower() in {"o", "y", "yes", "oui"}
+        recursive = parse_yes_no(input("Chiffrement récursif ? (O/N) : "))
         ext = ""
         if mode == "3":
             ext = input("Extension (ex: txt, pdf) : ").strip()
@@ -455,7 +472,7 @@ def action_encrypt() -> None:
     key_file = Path(input("Fichier clé JSON : ").strip()).expanduser()
     key_material = load_key(key_file)
 
-    inplace = input("Chiffrement in-place ? (O/N) : ").strip().lower() in {"o", "y", "yes", "oui"}
+    inplace = parse_yes_no(input("Chiffrement in-place ? (O/N) : "))
 
     total = len(files)
     print(f"Chiffrement de {total} fichiers...")

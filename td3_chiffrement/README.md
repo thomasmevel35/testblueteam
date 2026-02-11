@@ -71,10 +71,11 @@ Résultat: total=15, chiffrés=14, ignorés=1, erreurs=0
 ### Ce que fait le module SFTP
 
 - Validation de la cible et du port
-- Validation de l'authentification (mot de passe ou clé privée)
+- Connexion via `paramiko.SSHClient` (plus compatible selon les serveurs SFTP)
+- Validation de l'authentification (mot de passe ou clé privée `key_filename`)
 - Vérification du fichier local avant envoi
 - Création automatique des dossiers distants intermédiaires
-- Vérification de la présence du fichier distant après upload
+- Vérification de la taille distante après upload (contrôle d'intégrité simple)
 
 ### Exemples
 

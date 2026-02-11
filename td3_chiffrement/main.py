@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import platform
+import posixpath
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -246,30 +247,29 @@ def _require_paramiko() -> None:
 
 
 def _prepare_remote_path(sftp_client, remote_path: str) -> str:
-    """Crée les dossiers distants intermédiaires si nécessaire."""
+    """Crée les dossiers distants intermédiaires si nécessaire (style POSIX)."""
     remote = remote_path.strip()
     if not remote:
         raise ValueError("Chemin distant vide.")
 
-    parts = [p for p in remote.split("/") if p]
-    if len(parts) <= 1:
-        return remote
+    normalized = posixpath.normpath(remote)
+    parent = posixpath.dirname(normalized)
 
-    dirs = parts[:-1]
-    current = "/" if remote.startswith("/") else ""
+    # Cas fichier à la racine ou chemin relatif simple.
+    if parent in {"", ".", "/"}:
+        return normalized
 
-    for folder in dirs:
-        if current in {"", "/"}:
-            current = f"{current}{folder}" if current == "/" else folder
-        else:
-            current = f"{current}/{folder}"
+    parts = [part for part in parent.split("/") if part]
+    current = "/" if normalized.startswith("/") else ""
 
+    for folder in parts:
+        current = posixpath.join(current, folder) if current else folder
         try:
             sftp_client.stat(current)
         except OSError:
             sftp_client.mkdir(current)
 
-    return remote
+    return normalized
 
 
 def send_sftp(local: str, remote: str, config: dict) -> bool:
@@ -288,19 +288,29 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
         port = int(config["port"])
         username = str(config["username"]).strip()
 
-        connect_kwargs: dict = {"username": username}
+        connect_kwargs: dict = {
+            "hostname": host,
+            "port": port,
+            "username": username,
+            "timeout": 15,
+            "look_for_keys": False,
+            "allow_agent": False,
+        }
+
         if config.get("password"):
             connect_kwargs["password"] = config["password"]
         else:
             key_path = Path(str(config["private_key"])).expanduser().resolve()
             if not key_path.is_file():
                 raise FileNotFoundError(f"Clé privée SSH introuvable: {key_path}")
-            connect_kwargs["pkey"] = paramiko.RSAKey.from_private_key_file(str(key_path))
+            connect_kwargs["key_filename"] = str(key_path)
 
-        transport = paramiko.Transport((host, port))
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
         try:
-            transport.connect(**connect_kwargs)
-            with paramiko.SFTPClient.from_transport(transport) as sftp:
+            ssh.connect(**connect_kwargs)
+            with ssh.open_sftp() as sftp:
                 final_remote = _prepare_remote_path(sftp, remote)
                 sftp.put(str(local_path), final_remote)
                 remote_stat = sftp.stat(final_remote)
@@ -309,7 +319,7 @@ def send_sftp(local: str, remote: str, config: dict) -> bool:
                         f"Transfert SFTP incomplet: taille distante {remote_stat.st_size} != taille locale {local_size}."
                     )
         finally:
-            transport.close()
+            ssh.close()
 
         print("✓ Transfert SFTP réussi.")
         return True

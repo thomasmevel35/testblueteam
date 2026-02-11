@@ -371,6 +371,15 @@ def render_progress(current: int, total: int, width: int = 20) -> str:
     return f"[{bar}] {pct}%"
 
 
+def print_progress_line(current: int, total: int, label: str = "") -> None:
+    """Affiche une barre de progression en ligne (pourcentage)."""
+    suffix = f" - {label}" if label else ""
+    line = f"\r{render_progress(current, total)}{suffix}"
+    print(line, end="", flush=True)
+    if current >= total:
+        print()
+
+
 def select_directories() -> tuple[list[Path], bool]:
     print("[1] Fichier unique")
     print("[2] Dossier complet")
@@ -451,20 +460,26 @@ def action_encrypt() -> None:
     total = len(files)
     print(f"Chiffrement de {total} fichiers...")
     done = 0
+    skipped = 0
+    failed = 0
+
     for file_path in files:
-        if is_encrypted(file_path):
+        try:
+            if is_encrypted(file_path):
+                skipped += 1
+            else:
+                encrypt_file(str(file_path), key_material.key_bytes, inplace=inplace)
+        except Exception:
+            failed += 1
+        finally:
             done += 1
-            print(render_progress(done, total), f"(déjà chiffré: {file_path})")
-            continue
+            print_progress_line(done, total, file_path.name)
 
-        encrypt_file(str(file_path), key_material.key_bytes, inplace=inplace)
-        done += 1
-        print(render_progress(done, total), file_path)
-
+    print(f"Résultat: total={total}, chiffrés={total - skipped - failed}, ignorés={skipped}, erreurs={failed}")
     if from_dir:
         print("✓ Dossier traité avec succès.")
     else:
-        print("✓ Fichier chiffré avec succès.")
+        print("✓ Fichier traité avec succès.")
 
 
 def main() -> None:
